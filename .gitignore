@@ -8,3 +8,5 @@ npm-debug.log*
 pnpm-lock.yaml
 yarn.lock
 coverage/
+CODE_DUMP.md
+*.tsbuildinfo

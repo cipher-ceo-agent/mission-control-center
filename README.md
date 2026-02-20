@@ -14,7 +14,7 @@ MCC is a **fully local** control plane for OpenClaw. It runs on the same machine
 
 ## Install
 ```bash
-cd company/repos/mission-control-center
+cd mission-control-center
 npm install
 ```
 
@@ -38,7 +38,7 @@ Then open `http://127.0.0.1:3001`.
 
 ## Run MCC alongside OpenClaw (one-liner)
 ```bash
-cd company/repos/mission-control-center && npm run start:prod
+cd mission-control-center && npm run start:prod
 ```
 (Keep OpenClaw Gateway running on same host.)
 
@@ -61,7 +61,7 @@ After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.openclaw/workspace/company/repos/mission-control-center
+WorkingDirectory=/path/to/mission-control-center
 Environment=MCC_HOST=127.0.0.1
 Environment=MCC_PORT=3001
 Environment=GATEWAY_BASE_URL=http://127.0.0.1:9471
@@ -129,8 +129,12 @@ launchctl start com.local.mcc
 Every write operation logs into SQLite (`audit_log` table):
 - timestamp, action, target, outcome, detail
 
+## Template Hygiene
+No personal agents, memory stores, or skill definitions are committed to this repo. All runtime data (SQLite databases, agent state, cached skills) is generated locally and excluded via `.gitignore`. Clone the repo and it starts clean.
+
 ## MVP Status
 ✅ Overview plugin
 ✅ Calendar/Cron plugin
 ✅ Memory manager plugin
-✅ Placeholder plugin skeletons (tasks, skills, activity, stats)
+✅ Skills plugin (read-only listing)
+✅ Placeholder plugin skeletons (tasks, activity, stats)
