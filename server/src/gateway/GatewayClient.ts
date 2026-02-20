@@ -8,6 +8,25 @@ type RpcPayload = {
   params?: Record<string, unknown>;
 };
 
+function parseJsonLoose(raw: string): any {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractErrorMessage(payload: any): string | null {
+  if (!payload) return null;
+  if (typeof payload === "string") return payload;
+
+  const direct = payload.message ?? payload.error?.message ?? payload.error;
+  if (typeof direct === "string") return direct;
+
+  return null;
+}
+
 export class GatewayClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -109,16 +128,23 @@ export class GatewayClient extends EventEmitter {
       body: JSON.stringify(payload)
     });
 
+    const text = await res.text();
+    const json = parseJsonLoose(text);
+
     if (res.status === 401 || res.status === 403) {
       this.setState("unauthorized");
       throw new Error(`Gateway unauthorized (${res.status})`);
     }
 
     if (!res.ok) {
-      throw new Error(`Gateway request failed (${res.status})`);
+      const detail = extractErrorMessage(json) ?? (text && text.length < 220 ? text : null);
+      throw new Error(
+        detail ? `Gateway request failed (${res.status}): ${detail}` : `Gateway request failed (${res.status})`
+      );
     }
 
-    return res.json().catch(() => ({}));
+    if (json !== undefined) return json;
+    return {};
   }
 
   async rpc(payload: RpcPayload): Promise<any> {
@@ -127,25 +153,57 @@ export class GatewayClient extends EventEmitter {
     return raw?.result ?? raw;
   }
 
-  async invokeTool(tool: string, input: Record<string, unknown>): Promise<any> {
-    const url = `${this.cfg.baseUrl}${this.cfg.invokePath}`;
+  private unwrapToolResult(raw: any): any {
+    if (raw?.ok === false) {
+      const msg = extractErrorMessage(raw) ?? "Gateway tool invocation failed";
+      throw new Error(msg);
+    }
 
-    const attempts = [
-      { tool, input },
-      { name: tool, parameters: input },
-      { recipient_name: `functions.${tool}`, parameters: input }
-    ];
+    const result = raw?.result ?? raw?.output ?? raw;
 
-    let lastErr: unknown;
-    for (const attempt of attempts) {
-      try {
-        const raw = await this.postJson(url, attempt);
-        return raw?.result ?? raw?.output ?? raw;
-      } catch (err) {
-        lastErr = err;
+    if (result?.ok === false) {
+      const msg = extractErrorMessage(result) ?? "Gateway tool invocation failed";
+      throw new Error(msg);
+    }
+
+    if (result?.details !== undefined) {
+      return result.details;
+    }
+
+    if (raw?.details !== undefined) {
+      return raw.details;
+    }
+
+    const content = result?.content;
+    if (Array.isArray(content)) {
+      const jsonPart = content.find((c: any) => c?.type === "json" && c?.json !== undefined);
+      if (jsonPart?.json !== undefined) return jsonPart.json;
+
+      const textPart = content.find((c: any) => c?.type === "text" && typeof c?.text === "string");
+      if (textPart?.text) {
+        const parsed = parseJsonLoose(textPart.text);
+        if (parsed !== undefined) return parsed;
       }
     }
 
-    throw lastErr instanceof Error ? lastErr : new Error("tool invoke failed");
+    if (typeof result === "string") {
+      const parsed = parseJsonLoose(result);
+      return parsed ?? result;
+    }
+
+    return result;
+  }
+
+  async invokeTool(tool: string, input: Record<string, unknown>): Promise<any> {
+    const url = `${this.cfg.baseUrl}${this.cfg.invokePath}`;
+
+    // OpenClaw /tools/invoke schema is { tool, args, details }
+    const raw = await this.postJson(url, {
+      tool,
+      args: input,
+      details: {}
+    });
+
+    return this.unwrapToolResult(raw);
   }
 }

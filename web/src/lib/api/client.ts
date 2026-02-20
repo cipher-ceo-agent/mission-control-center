@@ -32,11 +32,12 @@ export const api = {
   overviewAgent: (agentId: string) => req<any>(`/overview/agents/${encodeURIComponent(agentId)}`),
   overviewHistory: (sessionKey: string, limit = 100) => req<any>(`/overview/sessions/${encodeURIComponent(sessionKey)}/history?limit=${limit}`),
 
-  cronList: () => req<{ jobs: any[] }>("/calendar/cron"),
+  cronList: () => req<{ jobs: any[]; error?: string }>("/calendar/cron"),
   cronPatch: (id: string, patch: any) => req<any>(`/calendar/cron/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   cronRun: (id: string) => req<any>(`/calendar/cron/${id}/run`, { method: "POST", body: "{}" }),
   cronRuns: (id: string) => req<any>(`/calendar/cron/${id}/runs`),
 
+  memoryFiles: () => req<{ files: Array<{ path: string; updatedAt: string; size: number }> }>("/memory/files"),
   memorySearch: (payload: { query: string; maxResults?: number; agentId?: string; global?: boolean }) =>
     req<any>("/memory/search", { method: "POST", body: JSON.stringify(payload) }),
   memoryExport: (payload: { agentId?: string; all?: boolean }) =>
@@ -46,5 +47,7 @@ export const api = {
   memoryClear: (payload: { confirm: string; target?: "daily" | "long-term" | "all" }) =>
     req<any>("/memory/clear", { method: "POST", body: JSON.stringify(payload) }),
 
+  skillsList: () => req<{ source: string; root: string; count: number; skills: any[]; error?: string }>("/skills"),
+  skills: () => req<any>("/skills"),
   audit: () => req<{ items: any[] }>("/audit")
 };

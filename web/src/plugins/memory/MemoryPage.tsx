@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { api } from "../../lib/api/client";
 
+function errMsg(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return "Request failed";
+}
+
 export function MemoryPage() {
   const [query, setQuery] = useState("");
   const [agentId, setAgentId] = useState("main");
@@ -9,13 +14,28 @@ export function MemoryPage() {
   const [clearPhrase, setClearPhrase] = useState("");
   const [importText, setImportText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [provider, setProvider] = useState<string | null>(null);
 
   const runSearch = async () => {
     if (!query.trim()) return;
     setBusy(true);
+    setError(null);
+    setNotice(null);
+    setWarnings([]);
     try {
       const out = await api.memorySearch({ query, maxResults: 15, global: globalMode, agentId });
       setResults(out.results || out.items || out.matches || []);
+      setWarnings(Array.isArray(out.warnings) ? out.warnings : []);
+      setProvider(out.provider || null);
+      if ((out.results || []).length === 0) {
+        setNotice("No matches found.");
+      }
+    } catch (err) {
+      setResults([]);
+      setError(errMsg(err));
     } finally {
       setBusy(false);
     }
@@ -23,6 +43,8 @@ export function MemoryPage() {
 
   const exportMemory = async () => {
     setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       const out = await api.memoryExport(globalMode ? { all: true } : { agentId });
       const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
@@ -32,6 +54,9 @@ export function MemoryPage() {
       a.download = `mcc-memory-export-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      setNotice("Memory export downloaded.");
+    } catch (err) {
+      setError(errMsg(err));
     } finally {
       setBusy(false);
     }
@@ -40,12 +65,14 @@ export function MemoryPage() {
   const importMemory = async () => {
     if (!importText.trim()) return;
     setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       const parsed = JSON.parse(importText);
       await api.memoryImport({ items: parsed.items || [], overwrite: true });
-      alert("Memory import complete.");
-    } catch (err: any) {
-      alert(err?.message || "Import failed");
+      setNotice("Memory import complete.");
+    } catch (err) {
+      setError(errMsg(err));
     } finally {
       setBusy(false);
     }
@@ -54,11 +81,13 @@ export function MemoryPage() {
   const clearMemory = async () => {
     if (!confirm("This is destructive. Continue?")) return;
     setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       await api.memoryClear({ confirm: clearPhrase, target: "all" });
-      alert("Memory cleared.");
-    } catch (err: any) {
-      alert(err?.message || "Clear failed");
+      setNotice("Memory cleared.");
+    } catch (err) {
+      setError(errMsg(err));
     } finally {
       setBusy(false);
     }
@@ -68,6 +97,17 @@ export function MemoryPage() {
     <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
       <div className="card">
         <h2 className="mb-3 text-lg font-semibold">Memory Manager</h2>
+
+        {error && <div className="mb-3 rounded border border-red-700 bg-red-950/40 p-2 text-sm text-red-200">{error}</div>}
+        {notice && <div className="mb-3 rounded border border-green-700 bg-green-950/30 p-2 text-sm text-green-100">{notice}</div>}
+        {warnings.length > 0 && (
+          <div className="mb-3 rounded border border-amber-700 bg-amber-950/30 p-2 text-sm text-amber-100">
+            {warnings.map((w, i) => (
+              <div key={i}>{w}</div>
+            ))}
+          </div>
+        )}
+
         <div className="mb-3 grid gap-3 md:grid-cols-[1fr_160px]">
           <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search memory..." />
           <button className="btn" disabled={busy} onClick={runSearch}>Search</button>
@@ -85,6 +125,7 @@ export function MemoryPage() {
               placeholder="agent id"
             />
           )}
+          {provider && <span className="text-xs text-slate-400">provider: {provider}</span>}
         </div>
 
         <div className="grid gap-2">

@@ -12,6 +12,11 @@ const searchSchema = z.object({
   global: z.boolean().optional()
 });
 
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return "unknown error";
+}
+
 function listMemoryFiles(): string[] {
   const out: string[] = [];
   if (fs.existsSync(config.paths.longTermMemory)) out.push(config.paths.longTermMemory);
@@ -20,12 +25,139 @@ function listMemoryFiles(): string[] {
       if (file.endsWith(".md")) out.push(path.join(config.paths.memoryDir, file));
     }
   }
+
+  return out.sort((a, b) => {
+    const aMs = fs.existsSync(a) ? fs.statSync(a).mtimeMs : 0;
+    const bMs = fs.existsSync(b) ? fs.statSync(b).mtimeMs : 0;
+    return bMs - aMs;
+  });
+}
+
+function normalizeSearchResult(entry: any): any | null {
+  if (!entry) return null;
+
+  const snippet =
+    entry.snippet ??
+    entry.text ??
+    entry.content ??
+    entry.chunk ??
+    entry.preview ??
+    entry.message ??
+    "";
+
+  const source = entry.path ?? entry.source ?? entry.file ?? entry.filePath ?? "unknown";
+  const line = entry.line ?? entry.lineNumber ?? undefined;
+
+  if (!snippet && !source) return null;
+
+  return {
+    ...entry,
+    snippet: String(snippet || "(no snippet)"),
+    path: String(source),
+    line: typeof line === "number" ? line : undefined
+  };
+}
+
+function normalizeSearchResults(raw: any): any[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.results)
+      ? raw.results
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : Array.isArray(raw?.matches)
+          ? raw.matches
+          : Array.isArray(raw?.hits)
+            ? raw.hits
+            : [];
+
+  return list.map(normalizeSearchResult).filter(Boolean) as any[];
+}
+
+function buildSnippet(lines: string[], idx: number): string {
+  const start = Math.max(0, idx - 1);
+  const end = Math.min(lines.length, idx + 2);
+  const raw = lines.slice(start, end).join(" ").replace(/\s+/g, " ").trim();
+  if (!raw) return "(empty line match)";
+  if (raw.length <= 220) return raw;
+  return `${raw.slice(0, 217)}...`;
+}
+
+function localMarkdownSearch(query: string, maxResults: number): any[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  const out: any[] = [];
+
+  for (const file of listMemoryFiles()) {
+    const rel = path.relative(config.paths.workspace, file) || path.basename(file);
+    const content = fs.readFileSync(file, "utf8");
+    const lines = content.split(/\r?\n/);
+
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!lines[i].toLowerCase().includes(q)) continue;
+
+      out.push({
+        snippet: buildSnippet(lines, i),
+        path: rel,
+        line: i + 1,
+        source: "local-markdown"
+      });
+
+      if (out.length >= maxResults) return out;
+    }
+  }
+
   return out;
 }
 
 export const memoryPlugin: ServerPlugin = {
   id: "memory",
   async register({ app, gateway, db }) {
+    const runSearch = async (
+      parsed: z.infer<typeof searchSchema>,
+      reply: { code: (n: number) => unknown }
+    ) => {
+      let gatewayOut: any = null;
+      let upstreamError: string | null = null;
+      let results: any[] = [];
+
+      try {
+        gatewayOut = await gateway.invokeTool("memory_search", {
+          query: parsed.query,
+          maxResults: parsed.maxResults ?? 10
+        });
+        results = normalizeSearchResults(gatewayOut);
+      } catch (err) {
+        upstreamError = errorMessage(err);
+      }
+
+      let fallbackUsed = false;
+      if (results.length === 0) {
+        const fallback = localMarkdownSearch(parsed.query, parsed.maxResults ?? 10);
+        if (fallback.length > 0) {
+          results = fallback;
+          fallbackUsed = true;
+        }
+      }
+
+      const warnings: string[] = [];
+      if (upstreamError) warnings.push(`memory_search failed: ${upstreamError}`);
+      if (fallbackUsed) warnings.push("Using local markdown fallback results.");
+
+      if (upstreamError && results.length === 0) {
+        reply.code(502);
+      }
+
+      return {
+        results,
+        provider: gatewayOut?.provider ?? (fallbackUsed ? "local-markdown" : "unknown"),
+        mode: gatewayOut?.mode ?? (fallbackUsed ? "local-fallback" : "gateway"),
+        warnings,
+        upstreamError
+      };
+    };
+
     app.get("/api/memory/search", async (req, reply) => {
       const q = req.query as { query?: string; maxResults?: string; agentId?: string; global?: string };
       const parsed = searchSchema.safeParse({
@@ -39,16 +171,7 @@ export const memoryPlugin: ServerPlugin = {
         return { error: parsed.error.flatten() };
       }
 
-      try {
-        const out = await gateway.invokeTool("memory_search", {
-          query: parsed.data.query,
-          maxResults: parsed.data.maxResults ?? 10
-        });
-        return out;
-      } catch (err: any) {
-        reply.code(502);
-        return { error: err?.message ?? "memory search failed" };
-      }
+      return runSearch(parsed.data, reply);
     });
 
     app.post("/api/memory/search", async (req, reply) => {
@@ -58,16 +181,7 @@ export const memoryPlugin: ServerPlugin = {
         return { error: parsed.error.flatten() };
       }
 
-      try {
-        const out = await gateway.invokeTool("memory_search", {
-          query: parsed.data.query,
-          maxResults: parsed.data.maxResults ?? 10
-        });
-        return out;
-      } catch (err: any) {
-        reply.code(502);
-        return { error: err?.message ?? "memory search failed" };
-      }
+      return runSearch(parsed.data, reply);
     });
 
     const exportHandler = async (agentId?: string, all?: boolean) => {

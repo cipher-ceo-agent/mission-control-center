@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api/client";
 import { Badge } from "../../components/Badge";
 
+function errMsg(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return "Request failed";
+}
+
 function formatSchedule(job: any): string {
   const s = job.schedule;
   if (!s) return "n/a";
@@ -18,22 +23,39 @@ export function CalendarPage() {
   const [expr, setExpr] = useState("");
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = async () => {
     const out = await api.cronList();
+    if (out.error) throw new Error(out.error);
     setJobs(out.jobs || []);
   };
 
   useEffect(() => {
-    load().catch(() => {});
-    const t = setInterval(() => load().catch(() => {}), 10000);
+    load()
+      .then(() => setError(null))
+      .catch((err) => setError(errMsg(err)));
+
+    const t = setInterval(() => {
+      load().catch((err) => setError(errMsg(err)));
+    }, 10000);
+
     return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
     if (!selected?.jobId && !selected?.id) return;
     const id = selected.jobId || selected.id;
-    api.cronRuns(id).then((r) => setRuns(r.runs || r.items || [])).catch(() => setRuns([]));
+    api
+      .cronRuns(id)
+      .then((r) => {
+        setRuns(r.runs || r.items || r.entries || []);
+      })
+      .catch((err) => {
+        setRuns([]);
+        setError(errMsg(err));
+      });
   }, [selected]);
 
   const sorted = useMemo(() => [...jobs].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))), [jobs]);
@@ -50,9 +72,14 @@ export function CalendarPage() {
   const toggleEnabled = async (job: any) => {
     const id = job.jobId || job.id;
     setLoading(true);
+    setError(null);
+    setNotice(null);
     try {
       await api.cronPatch(id, { enabled: !job.enabled });
       await load();
+      setNotice(`${job.name || id} ${job.enabled ? "disabled" : "enabled"}.`);
+    } catch (err) {
+      setError(errMsg(err));
     } finally {
       setLoading(false);
     }
@@ -62,12 +89,17 @@ export function CalendarPage() {
     const id = job.jobId || job.id;
     if (!confirm(`Run ${job.name || id} now?`)) return;
     setLoading(true);
+    setError(null);
+    setNotice(null);
     try {
       await api.cronRun(id);
+      setNotice(`${job.name || id} run triggered.`);
       if (selected && (selected.jobId || selected.id) === id) {
         const r = await api.cronRuns(id);
-        setRuns(r.runs || r.items || []);
+        setRuns(r.runs || r.items || r.entries || []);
       }
+    } catch (err) {
+      setError(errMsg(err));
     } finally {
       setLoading(false);
     }
@@ -77,10 +109,14 @@ export function CalendarPage() {
     if (!selected) return;
     const id = selected.jobId || selected.id;
     setLoading(true);
+    setError(null);
+    setNotice(null);
     try {
       await api.cronPatch(id, { schedule: { kind: "cron", expr, tz: selected.schedule?.tz || "America/Los_Angeles" } });
       await load();
-      alert("Schedule updated");
+      setNotice("Schedule updated.");
+    } catch (err) {
+      setError(errMsg(err));
     } finally {
       setLoading(false);
     }
@@ -96,6 +132,9 @@ export function CalendarPage() {
             <button className={`btn ${viewMode === "calendar" ? "bg-cyan-700" : ""}`} onClick={() => setViewMode("calendar")}>Calendar</button>
           </div>
         </div>
+
+        {error && <div className="mb-3 rounded border border-red-700 bg-red-950/40 p-2 text-sm text-red-200">{error}</div>}
+        {notice && <div className="mb-3 rounded border border-green-700 bg-green-950/30 p-2 text-sm text-green-100">{notice}</div>}
 
         {viewMode === "list" ? (
           <div className="overflow-auto">
@@ -136,6 +175,7 @@ export function CalendarPage() {
                 })}
               </tbody>
             </table>
+            {sorted.length === 0 && <div className="py-3 text-sm text-slate-500">No cron jobs returned.</div>}
           </div>
         ) : (
           <div className="grid gap-3">
@@ -164,6 +204,7 @@ export function CalendarPage() {
                 </div>
               </div>
             ))}
+            {groupedByDay.length === 0 && <div className="text-sm text-slate-500">No cron jobs returned.</div>}
           </div>
         )}
       </div>

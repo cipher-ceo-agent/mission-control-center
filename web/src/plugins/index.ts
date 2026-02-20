@@ -10,7 +10,7 @@ export const uiPlugins: UiPluginManifest[] = [
   { id: "calendar", route: "/calendar", title: "Calendar", mvp: true },
   { id: "memory", route: "/memory", title: "Memory", mvp: true },
   { id: "tasks", route: "/tasks", title: "Tasks", mvp: false },
-  { id: "skills", route: "/skills", title: "Skills", mvp: false },
+  { id: "skills", route: "/skills", title: "Skills", mvp: true },
   { id: "activity", route: "/activity", title: "Activity", mvp: false },
   { id: "stats", route: "/stats", title: "Stats", mvp: false }
 ];

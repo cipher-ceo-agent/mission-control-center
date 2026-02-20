@@ -11,6 +11,11 @@ type AgentCard = {
   state: "busy" | "idle";
 };
 
+function errMsg(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return "Request failed";
+}
+
 export function OverviewPage() {
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState("");
@@ -18,6 +23,9 @@ export function OverviewPage() {
   const [detail, setDetail] = useState<any>(null);
   const [transcript, setTranscript] = useState<any[] | null>(null);
   const [transcriptKey, setTranscriptKey] = useState<string>("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -25,9 +33,12 @@ export function OverviewPage() {
     const load = async () => {
       try {
         const next = await api.overview();
-        if (mounted) setData(next);
-      } catch {
-        // keep old data if poll fails
+        if (!mounted) return;
+        setData(next);
+        setLoadError(null);
+      } catch (err) {
+        if (!mounted) return;
+        setLoadError(errMsg(err));
       }
     };
 
@@ -41,10 +52,19 @@ export function OverviewPage() {
 
   useEffect(() => {
     if (!selected) return;
-    api.overviewAgent(selected).then(setDetail).catch(() => setDetail(null));
+    setDetailError(null);
+
+    api
+      .overviewAgent(selected)
+      .then(setDetail)
+      .catch((err) => {
+        setDetail(null);
+        setDetailError(errMsg(err));
+      });
   }, [selected]);
 
   const agents: AgentCard[] = data?.agents ?? [];
+  const warnings: string[] = Array.isArray(data?.warnings) ? data.warnings : [];
 
   const filtered = useMemo(
     () => agents.filter((a) => a.agentId.toLowerCase().includes(search.toLowerCase())),
@@ -59,7 +79,11 @@ export function OverviewPage() {
       <button
         style={style}
         className="w-full border-b border-slate-700 px-3 py-2 text-left hover:bg-slate-800"
-        onClick={() => setSelected(item.agentId)}
+        onClick={() => {
+          setSelected(item.agentId);
+          setTranscript(null);
+          setTranscriptError(null);
+        }}
       >
         <div className="flex items-center justify-between">
           <span className="font-medium">{item.displayName}</span>
@@ -85,6 +109,15 @@ export function OverviewPage() {
           />
         </div>
 
+        {loadError && <div className="mb-3 rounded border border-red-700 bg-red-950/40 p-2 text-sm text-red-200">{loadError}</div>}
+        {warnings.length > 0 && (
+          <div className="mb-3 rounded border border-amber-700 bg-amber-950/30 p-2 text-sm text-amber-100">
+            {warnings.map((w, i) => (
+              <div key={i}>{w}</div>
+            ))}
+          </div>
+        )}
+
         <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-lg bg-slate-900 p-3">
             <div className="text-xs text-slate-400">Gateway state</div>
@@ -107,11 +140,15 @@ export function OverviewPage() {
             {Row}
           </List>
         </div>
+        {filtered.length === 0 && (
+          <div className="mt-2 text-sm text-slate-400">No agents returned by gateway.</div>
+        )}
       </div>
 
       <div className="card">
         <h3 className="mb-2 text-base font-semibold">Agent Detail</h3>
         {!selected && <p className="text-sm text-slate-400">Select an agent to view sessions.</p>}
+        {detailError && <div className="mb-3 rounded border border-red-700 bg-red-950/40 p-2 text-sm text-red-200">{detailError}</div>}
         {selected && (
           <>
             <p className="mb-3 text-sm text-slate-300">{selected}</p>
@@ -119,20 +156,25 @@ export function OverviewPage() {
               {(detail?.sessions ?? []).map((s: any) => (
                 <div key={s.sessionKey} className="rounded-lg bg-slate-900 p-3 text-sm">
                   <div className="font-medium">{s.label || s.sessionKey}</div>
-                  <div className="mt-1 text-xs text-slate-400">{s.status} · {s.kind}</div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    {s.status} · {s.kind}
+                  </div>
                   <div className="mt-2 flex gap-2">
-                    <button
-                      className="btn"
-                      onClick={() => navigator.clipboard.writeText(s.sessionKey || "")}
-                    >
+                    <button className="btn" onClick={() => navigator.clipboard.writeText(s.sessionKey || "")}>
                       Copy Session Key
                     </button>
                     <button
                       className="btn"
                       onClick={async () => {
-                        const out = await api.overviewHistory(s.sessionKey, 80);
-                        setTranscript(out.messages || []);
-                        setTranscriptKey(s.sessionKey);
+                        setTranscriptError(null);
+                        try {
+                          const out = await api.overviewHistory(s.sessionKey, 80);
+                          setTranscript(out.messages || []);
+                          setTranscriptKey(s.sessionKey);
+                        } catch (err) {
+                          setTranscript(null);
+                          setTranscriptError(errMsg(err));
+                        }
                       }}
                     >
                       View Transcript
@@ -140,15 +182,24 @@ export function OverviewPage() {
                   </div>
                 </div>
               ))}
+              {selected && (detail?.sessions ?? []).length === 0 && (
+                <div className="text-sm text-slate-500">No sessions found for this agent.</div>
+              )}
             </div>
           </>
+        )}
+
+        {transcriptError && (
+          <div className="mt-3 rounded border border-red-700 bg-red-950/40 p-2 text-sm text-red-200">{transcriptError}</div>
         )}
 
         {transcript && (
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3">
             <div className="mb-2 flex items-center justify-between">
               <h4 className="text-sm font-semibold">Transcript (read-only)</h4>
-              <button className="btn" onClick={() => setTranscript(null)}>Close</button>
+              <button className="btn" onClick={() => setTranscript(null)}>
+                Close
+              </button>
             </div>
             <div className="mb-2 text-xs text-slate-400">session: {transcriptKey}</div>
             <div className="grid max-h-64 gap-2 overflow-auto">
