@@ -35,6 +35,16 @@ app.get("/api/audit", async (req) => {
   return { items: db.listAudit(Number(query.limit ?? 200)) };
 });
 
+const isSessionValid = (req: any) => {
+  const cookieVal = req.unsignCookie(req.cookies.mcc_session ?? "");
+  return cookieVal.valid && cookieVal.value === "ok";
+};
+
+app.get("/api/auth/status", async (req) => ({
+  requiresAuth: config.app.requiresAuth,
+  authenticated: config.app.requiresAuth ? isSessionValid(req) : true
+}));
+
 if (config.app.requiresAuth) {
   app.post("/api/auth/login", async (req, reply) => {
     const body = (req.body ?? {}) as { password?: string };
@@ -54,15 +64,29 @@ if (config.app.requiresAuth) {
     return { ok: true };
   });
 
+  app.post("/api/auth/logout", async (_, reply) => {
+    reply.clearCookie("mcc_session", { path: "/" });
+    return { ok: true };
+  });
+
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api")) return;
-    if (req.url === "/api/health" || req.url === "/api/auth/login") return;
+    if (
+      req.url === "/api/health" ||
+      req.url === "/api/auth/login" ||
+      req.url === "/api/auth/logout" ||
+      req.url === "/api/auth/status"
+    ) {
+      return;
+    }
 
-    const cookieVal = req.unsignCookie(req.cookies.mcc_session ?? "");
-    if (!cookieVal.valid || cookieVal.value !== "ok") {
+    if (!isSessionValid(req)) {
       reply.code(401).send({ error: "Auth required" });
     }
   });
+} else {
+  app.post("/api/auth/login", async () => ({ ok: true, auth: "disabled" }));
+  app.post("/api/auth/logout", async () => ({ ok: true, auth: "disabled" }));
 }
 
 for (const plugin of plugins) {

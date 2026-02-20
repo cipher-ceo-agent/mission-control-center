@@ -14,7 +14,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    const e = new Error(err.error || `HTTP ${res.status}`) as Error & { status?: number };
+    e.status = res.status;
+    throw e;
   }
 
   return res.json() as Promise<T>;
@@ -22,6 +24,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => req<{ ok: boolean; ts: string }>("/health"),
+  authStatus: () => req<{ requiresAuth: boolean; authenticated: boolean }>("/auth/status"),
+  login: (password: string) => req<{ ok: boolean }>("/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+  logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST", body: "{}" }),
   gatewayStatus: () => req<{ state: GatewayState; uptimeSeconds: number }>("/gateway/status"),
   overview: () => req<any>("/overview"),
   overviewAgent: (agentId: string) => req<any>(`/overview/agents/${encodeURIComponent(agentId)}`),

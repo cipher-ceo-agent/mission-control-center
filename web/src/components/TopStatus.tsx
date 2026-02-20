@@ -12,8 +12,13 @@ export function TopStatus() {
       try {
         const s = await api.gatewayStatus();
         if (mounted) setState(s.state);
-      } catch {
-        if (mounted) setState("disconnected");
+      } catch (err: any) {
+        if (!mounted) return;
+        if (err?.status === 401 || String(err?.message || "").toLowerCase().includes("auth")) {
+          setState("unauthorized");
+        } else {
+          setState("disconnected");
+        }
       }
     };
 

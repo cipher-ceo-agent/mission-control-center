@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { Nav } from "../components/Nav";
 import { TopStatus } from "../components/TopStatus";
+import { AuthGate } from "./AuthGate";
 
 export function Layout() {
   return (
@@ -15,14 +16,16 @@ export function Layout() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-7xl gap-4 p-4 md:grid-cols-[220px_1fr]">
-        <aside className="card h-fit">
-          <Nav />
-        </aside>
-        <section className="min-w-0">
-          <Outlet />
-        </section>
-      </main>
+      <AuthGate>
+        <main className="mx-auto grid max-w-7xl gap-4 p-4 md:grid-cols-[220px_1fr]">
+          <aside className="card h-fit">
+            <Nav />
+          </aside>
+          <section className="min-w-0">
+            <Outlet />
+          </section>
+        </main>
+      </AuthGate>
     </div>
   );
 }
