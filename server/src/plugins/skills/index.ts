@@ -56,22 +56,48 @@ function parseSkillDoc(skillDocAbs: string): { title: string | null; summary: st
   return { title, summary };
 }
 
+function resolveSkillsRoots(): string[] {
+  const roots = [
+    path.join(config.paths.workspace, "skills"),
+    path.join(config.paths.workspace, "company", "skills"),
+    path.join(config.paths.dataDir, "skills"),
+    path.join(process.env.HOME || "", ".openclaw", "skills")
+  ];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const root of roots) {
+    const normalized = path.resolve(root);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+
+  return out;
+}
+
 export const skillsPlugin: ServerPlugin = {
   id: "skills",
   async register({ app }) {
     app.get("/api/skills", async (_req, reply) => {
-      const skillsRoot = path.join(config.paths.workspace, "company", "skills");
+      const skillsRoots = resolveSkillsRoots();
 
       try {
-        const docs = findSkillDocs(skillsRoot).sort((a, b) => a.localeCompare(b));
+        const docs = skillsRoots.flatMap((root) => findSkillDocs(root)).sort((a, b) => a.localeCompare(b));
+        const uniqueDocs = [...new Set(docs)];
 
-        const skills = docs.map((skillDocAbs) => {
+        const skills = uniqueDocs.map((skillDocAbs) => {
           const skillDirAbs = path.dirname(skillDocAbs);
           const relSkillDir = path.relative(config.paths.workspace, skillDirAbs);
           const relSkillDoc = path.relative(config.paths.workspace, skillDocAbs);
-          const id = relSkillDir.replace(/^company[\\/]skills[\\/]/, "");
+          const id = relSkillDir
+            .replace(/^skills[\\/]/, "")
+            .replace(/^company[\\/]skills[\\/]/, "") || path.basename(skillDirAbs);
           const stat = fs.statSync(skillDocAbs);
           const parsed = parseSkillDoc(skillDocAbs);
+
+          const root = skillsRoots.find((candidate) => skillDocAbs.startsWith(candidate));
+          const sourceRoot = root ? path.relative(config.paths.workspace, root) || root : "unknown";
 
           return {
             id,
@@ -79,13 +105,16 @@ export const skillsPlugin: ServerPlugin = {
             summary: parsed.summary,
             skillPath: relSkillDir,
             skillDoc: relSkillDoc,
+            sourceRoot,
             updatedAt: stat.mtime.toISOString()
           };
         });
 
         return {
           source: "local-filesystem",
-          root: path.relative(config.paths.workspace, skillsRoot),
+          root: skillsRoots
+            .map((root) => path.relative(config.paths.workspace, root) || root)
+            .join(", "),
           count: skills.length,
           skills
         };
@@ -94,7 +123,9 @@ export const skillsPlugin: ServerPlugin = {
         return {
           error: `Failed to enumerate skills: ${errorMessage(err)}`,
           source: "local-filesystem",
-          root: path.relative(config.paths.workspace, skillsRoot),
+          root: skillsRoots
+            .map((root) => path.relative(config.paths.workspace, root) || root)
+            .join(", "),
           count: 0,
           skills: []
         };

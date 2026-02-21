@@ -64,7 +64,7 @@ Type=simple
 WorkingDirectory=/path/to/mission-control-center
 Environment=MCC_HOST=127.0.0.1
 Environment=MCC_PORT=3001
-Environment=GATEWAY_BASE_URL=http://127.0.0.1:9471
+Environment=GATEWAY_BASE_URL=http://127.0.0.1:18789
 ExecStart=/usr/bin/npm run start
 Restart=on-failure
 RestartSec=3
@@ -101,7 +101,7 @@ Create `~/Library/LaunchAgents/com.local.mcc.plist`:
     <dict>
       <key>MCC_HOST</key><string>127.0.0.1</string>
       <key>MCC_PORT</key><string>3001</string>
-      <key>GATEWAY_BASE_URL</key><string>http://127.0.0.1:9471</string>
+      <key>GATEWAY_BASE_URL</key><string>http://127.0.0.1:18789</string>
     </dict>
   </dict>
 </plist>
