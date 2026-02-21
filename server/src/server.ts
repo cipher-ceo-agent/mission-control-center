@@ -29,7 +29,10 @@ gateway.start();
 app.decorate("db", db);
 
 app.get("/api/health", async () => ({ ok: true, ts: new Date().toISOString() }));
-app.get("/api/gateway/status", async () => gateway.status());
+app.get("/api/gateway/status", async () => {
+  await gateway.probeHttpStatus();
+  return gateway.status();
+});
 app.get("/api/audit", async (req) => {
   const query = req.query as { limit?: string };
   return { items: db.listAudit(Number(query.limit ?? 200)) };

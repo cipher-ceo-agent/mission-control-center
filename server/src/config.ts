@@ -28,8 +28,8 @@ export const config = {
     sessionSecret: process.env.MCC_SESSION_SECRET ?? "mcc-dev-secret"
   },
   gateway: {
-    baseUrl: process.env.GATEWAY_BASE_URL ?? "http://127.0.0.1:9471",
-    wsUrl: process.env.GATEWAY_WS_URL ?? "ws://127.0.0.1:9471/ws",
+    baseUrl: process.env.GATEWAY_BASE_URL ?? "http://127.0.0.1:18789",
+    wsUrl: process.env.GATEWAY_WS_URL ?? "ws://127.0.0.1:18789",
     token: process.env.GATEWAY_TOKEN ?? "",
     rpcPath: process.env.GATEWAY_RPC_PATH ?? "/rpc",
     invokePath: process.env.GATEWAY_TOOLS_INVOKE_PATH ?? "/tools/invoke"

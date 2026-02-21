@@ -65,6 +65,32 @@ export class GatewayClient extends EventEmitter {
     };
   }
 
+  async probeHttpStatus(): Promise<GatewayState> {
+    const headers: Record<string, string> = {};
+    if (this.cfg.token) {
+      headers.Authorization = `Bearer ${this.cfg.token}`;
+    }
+
+    try {
+      const res = await fetch(this.cfg.baseUrl, {
+        method: "GET",
+        headers
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        this.setState("unauthorized");
+        return "unauthorized";
+      }
+
+      // Any HTTP response means gateway is reachable; keep WS as best-effort channel.
+      this.setState("connected");
+      return "connected";
+    } catch {
+      if (this.state === "unauthorized") return "unauthorized";
+      return this.state;
+    }
+  }
+
   private setState(next: GatewayState) {
     this.state = next;
     if (next === "connected" && !this.connectedAt) this.connectedAt = Date.now();

@@ -111,6 +111,21 @@ function localMarkdownSearch(query: string, maxResults: number): any[] {
   return out;
 }
 
+function resolveSafeWorkspacePath(relPath: string): string | null {
+  const normalized = relPath.replace(/\\/g, "/").trim();
+  if (!normalized || normalized.startsWith("/")) return null;
+
+  const abs = path.resolve(config.paths.workspace, normalized);
+  const root = path.resolve(config.paths.workspace);
+  const relative = path.relative(root, abs);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+
+  return abs;
+}
+
 export const memoryPlugin: ServerPlugin = {
   id: "memory",
   async register({ app, gateway, db }) {
@@ -241,7 +256,8 @@ export const memoryPlugin: ServerPlugin = {
         let written = 0;
         for (const item of body.items) {
           if (!item.path.endsWith(".md")) continue;
-          const abs = path.join(config.paths.workspace, item.path);
+          const abs = resolveSafeWorkspacePath(item.path);
+          if (!abs) continue;
           fs.mkdirSync(path.dirname(abs), { recursive: true });
           if (!body.overwrite && fs.existsSync(abs)) continue;
           fs.writeFileSync(abs, item.content, "utf8");
